@@ -1,0 +1,846 @@
+{
+  "name": "YouTube Transcription Panel - Updated API",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "youtube-panel",
+        "formTitle": "YouTube Video Transcription & Translation",
+        "formDescription": "Enter a YouTube video URL and select languages for translation",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "YouTube Video URL",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "First Language",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "English"
+                  },
+                  {
+                    "option": "Spanish"
+                  },
+                  {
+                    "option": "Portuguese"
+                  },
+                  {
+                    "option": "French"
+                  },
+                  {
+                    "option": "German"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Second Language",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "English"
+                  },
+                  {
+                    "option": "Spanish"
+                  },
+                  {
+                    "option": "Portuguese"
+                  },
+                  {
+                    "option": "French"
+                  },
+                  {
+                    "option": "German"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "204b11a6-0a66-4e25-9d87-9f5a64f26ca9",
+      "name": "Form Trigger",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.1,
+      "position": [
+        -2112,
+        208
+      ],
+      "webhookId": "youtube-panel"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrair e mapear idiomas do formulário\nconst videoUrl = $json['YouTube Video URL'] || '';\nconst lang1 = $json['First Language'] || 'English';\nconst lang2 = $json['Second Language'] || 'Spanish';\n\n// Mapear nomes para códigos\nconst langMap = {\n  'English': 'en',\n  'Spanish': 'es',\n  'Portuguese': 'pt',\n  'French': 'fr',\n  'German': 'de'\n};\n\nreturn {\n  json: {\n    videoUrl: videoUrl,\n    targetLang1: langMap[lang1] || 'en',\n    targetLang2: langMap[lang2] || 'es'\n  }\n};"
+      },
+      "id": "f5e46d32-791e-4959-88cb-3458a33b9c67",
+      "name": "Extract Parameters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.supadata.ai/v1/transcript?url={{ encodeURIComponent($json.videoUrl) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "sd_d84fee559ad48abe19987c3dbfffb4c0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "2f6bf4c8-2524-4e31-8d3a-4e891c8c9af9",
+      "name": "Get YouTube Transcript (FREE API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1632,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst videoUrl = $node[\"Extract Parameters\"].json.videoUrl;\nlet videoTitle = 'video';\n\ntry {\n  const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(videoUrl)}&format=json`;\n  const metadataResponse = await fetch(oembedUrl);\n\n  if (metadataResponse.ok) {\n    const metadata = await metadataResponse.json();\n    videoTitle = metadata.title || 'video';\n  }\n} catch (error) {\n  console.log('Erro ao buscar metadados:', error.message);\n}\n\nlet allText = '';\n\nfor (const item of items) {\n  const data = item.json;\n\n  console.log('Estrutura recebida da API:', JSON.stringify(data).substring(0, 200));\n\n  if (!data) {\n    throw new Error('Resposta da API não contém dados válidos');\n  }\n\n  let transcript = '';\n\n  // ===== PROCESSAMENTO DA RESPOSTA SUPADATA =====\n  \n  // Caso 1: Resposta com \"content\" como array de objetos com timestamps\n  if (data.content && Array.isArray(data.content)) {\n    console.log(`Processando ${data.content.length} segmentos de transcrição`);\n    transcript = data.content\n      .map(segment => {\n        // Cada segmento pode ter \"text\" como propriedade\n        return segment.text || segment.content || '';\n      })\n      .filter(text => text.length > 0)\n      .join(' ');\n  }\n  // Caso 2: Resposta com \"content\" como string (quando text=true na API)\n  else if (data.content && typeof data.content === 'string') {\n    transcript = data.content;\n  }\n  // Caso 3: Resposta direta como string\n  else if (typeof data === 'string') {\n    transcript = data;\n  }\n  // Caso 4: Campo \"text\" direto\n  else if (data.text) {\n    transcript = data.text;\n  }\n  // Caso 5: Fallback - tentar converter para string\n  else {\n    console.warn('Formato não reconhecido, tentando converter para string');\n    transcript = JSON.stringify(data);\n  }\n\n  // Limpar o texto removendo caracteres especiais e formatação\n  transcript = transcript\n    .replace(/\\[.*?\\]/g, '')        // Remove colchetes e conteúdo\n    .replace(/\\s+/g, ' ')             // Normaliza espaços\n    .replace(/[\\n\\r\\t]/g, ' ')      // Remove quebras de linha\n    .trim();\n\n  allText += transcript + ' ';\n  \n  console.log(`Texto extraído: ${transcript.substring(0, 100)}...`);\n}\n\nallText = allText.trim();\n\nif (!allText || allText.length === 0) {\n  throw new Error('Nenhum texto foi extraído da transcrição. Verifique o formato da resposta da API.');\n}\n\nconsole.log(`Texto total extraído: ${allText.length} caracteres`);\n\n// Dividir em chunks de 3000 caracteres para processamento\nconst chunkSize = 3000;\nconst chunks = [];\n\nfor (let i = 0; i < allText.length; i += chunkSize) {\n  chunks.push({\n    text: allText.substring(i, i + chunkSize),\n    index: Math.floor(i / chunkSize),\n    videoTitle: videoTitle\n  });\n}\n\nconsole.log(`Criados ${chunks.length} chunks para tradução`);\n\nreturn chunks.map(chunk => ({ json: chunk }));\n"
+      },
+      "id": "e895e1da-44ee-40af-8254-1a442cabd07e",
+      "name": "Process & Clean Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1408,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openai/gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a professional translator. Translate the text to English preserving formatting and punctuation. Return ONLY the translation without brackets or special characters.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.text }}\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 4000\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "37ec556b-cbd4-4071-8553-baf8797a7156",
+      "name": "Translate to English (GPT-3.5)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1184,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openai/gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Eres un traductor profesional. Traduce el texto al español manteniendo formato y puntuación. Devuelve SOLO la traducción sin corchetes ni caracteres especiales.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.text }}\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 4000\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "3bb0fbc6-a3f7-428e-bbfe-1e857da6236d",
+      "name": "Translate to Spanish (GPT-3.5)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1184,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "en-text",
+              "name": "translationEn",
+              "value": "={{ $json.choices[0].message.content.trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "chunk-idx",
+              "name": "index",
+              "value": "={{ $node[\"Process & Clean Transcript\"].json.index }}",
+              "type": "number"
+            },
+            {
+              "id": "video-title",
+              "name": "videoTitle",
+              "value": "={{ $node[\"Process & Clean Transcript\"].json.videoTitle }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3a1a1856-b081-4bb8-86ea-b21914824869",
+      "name": "Extract English",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -960,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "es-text",
+              "name": "translationEs",
+              "value": "={{ $json.choices[0].message.content.trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "chunk-idx",
+              "name": "index",
+              "value": "={{ $node[\"Process & Clean Transcript\"].json.index }}",
+              "type": "number"
+            },
+            {
+              "id": "video-title",
+              "name": "videoTitle",
+              "value": "={{ $node[\"Process & Clean Transcript\"].json.videoTitle }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "53626026-f2a4-4ffa-9d3c-1eec9843bc69",
+      "name": "Extract Spanish",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -960,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "92fabddd-7b04-4d89-b01a-188f73f925da",
+      "name": "Aggregate English",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -736,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "85ff1529-aa3d-4e9f-81c7-238e1562a753",
+      "name": "Aggregate Spanish",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -736,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nitems.sort((a, b) => (a.json.index || 0) - (b.json.index || 0));\n\nlet fullTranslation = '';\nlet videoTitle = 'video';\n\nfor (const item of items) {\n  const data = item.json.data ? item.json.data : item.json;\n\n  if (Array.isArray(data)) {\n    for (const d of data) {\n      if (d.translationEn) {\n        fullTranslation += d.translationEn + ' ';\n      }\n      if (d.videoTitle && (!videoTitle || videoTitle === 'video')) {\n        videoTitle = d.videoTitle;\n      }\n    }\n  } else {\n    if (data.translationEn) {\n      fullTranslation += data.translationEn + ' ';\n    }\n    if (data.videoTitle && (!videoTitle || videoTitle === 'video')) {\n      videoTitle = data.videoTitle;\n    }\n  }\n}\n\nfullTranslation = fullTranslation\n  .trim()\n  .replace(/[\\[\\]]/g, '')\n  .replace(/\\s+/g, ' ');\n\nconsole.log('English translation length:', fullTranslation.length);\n\nif (!fullTranslation || fullTranslation.length === 0) {\n  throw new Error('Nenhuma tradução encontrada');\n}\n\nreturn {\n  json: {\n    translatedText: fullTranslation,\n    videoTitle: videoTitle\n  }\n};"
+      },
+      "id": "ef8a79c3-ccdb-4a60-ae8f-6efac7ec62df",
+      "name": "Merge & Clean English",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nitems.sort((a, b) => (a.json.index || 0) - (b.json.index || 0));\n\nlet fullTranslation = '';\nlet videoTitle = 'video';\n\nfor (const item of items) {\n  const data = item.json.data ? item.json.data : item.json;\n\n  if (Array.isArray(data)) {\n    for (const d of data) {\n      if (d.translationEs) {\n        fullTranslation += d.translationEs + ' ';\n      }\n      if (d.videoTitle && (!videoTitle || videoTitle === 'video')) {\n        videoTitle = d.videoTitle;\n      }\n    }\n  } else {\n    if (data.translationEs) {\n      fullTranslation += data.translationEs + ' ';\n    }\n    if (data.videoTitle && (!videoTitle || videoTitle === 'video')) {\n      videoTitle = data.videoTitle;\n    }\n  }\n}\n\nfullTranslation = fullTranslation\n  .trim()\n  .replace(/[\\[\\]]/g, '')\n  .replace(/\\s+/g, ' ');\n\nconsole.log('Spanish translation length:', fullTranslation.length);\n\nif (!fullTranslation || fullTranslation.length === 0) {\n  throw new Error('Nenhuma tradução encontrada');\n}\n\nreturn {\n  json: {\n    translatedText: fullTranslation,\n    videoTitle: videoTitle\n  }\n};"
+      },
+      "id": "5cd4a5bb-f3f0-4da5-b2ec-d4ee7431bcb2",
+      "name": "Merge & Clean Spanish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.translatedText;\nconst videoTitle = $json.videoTitle || 'video';\n\nconsole.log('Debug English - texto recebido:', !!text);\nconsole.log('Debug English - comprimento:', text?.length || 0);\n\nif (!text) {\n  throw new Error('Texto traduzido está vazio');\n}\n\nlet cleanText = text.trim();\n\nif (cleanText.length > 4900) {\n  cleanText = cleanText.substring(0, 4900);\n  console.log('Texto truncado para 4900 caracteres');\n}\n\nreturn {\n  json: {\n    text: cleanText,\n    videoTitle: videoTitle,\n    length: cleanText.length\n  }\n};"
+      },
+      "id": "1b476000-d5e5-442a-9374-bae2716f4a75",
+      "name": "Debug & Validate English",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -352,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://texttospeech.googleapis.com/v1/text:synthesize?key=AIzaSyAD2T8INj7BxHBXWrSTE6sbhNhMnrtTtsw",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"input\": {\n    \"text\": \"{{ $json.text }}\"\n  },\n  \"voice\": {\n    \"languageCode\": \"en-US\",\n    \"name\": \"en-US-Neural2-F\"\n  },\n  \"audioConfig\": {\n    \"audioEncoding\": \"MP3\"\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "deb57391-59da-4621-9a23-b5f8b907baa4",
+      "name": "Google TTS English",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.translatedText;\nconst videoTitle = $json.videoTitle || 'video';\n\nconsole.log('Debug Spanish - texto recebido:', !!text);\nconsole.log('Debug Spanish - comprimento:', text?.length || 0);\n\nif (!text) {\n  throw new Error('Texto traduzido está vazio');\n}\n\nlet cleanText = text.trim();\n\nif (cleanText.length > 4900) {\n  cleanText = cleanText.substring(0, 4900);\n  console.log('Texto truncado para 4900 caracteres');\n}\n\nreturn {\n  json: {\n    text: cleanText,\n    videoTitle: videoTitle,\n    length: cleanText.length\n  }\n};"
+      },
+      "id": "85dbabea-90c8-406b-b553-b5579bace38d",
+      "name": "Debug & Validate Spanish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://texttospeech.googleapis.com/v1/text:synthesize?key=AIzaSyAD2T8INj7BxHBXWrSTE6sbhNhMnrtTtsw",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"input\": {\n    \"text\": \"{{ $json.text }}\"\n  },\n  \"voice\": {\n    \"languageCode\": \"es-ES\",\n    \"name\": \"es-ES-Neural2-A\"\n  },\n  \"audioConfig\": {\n    \"audioEncoding\": \"MP3\"\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "3053fc74-0835-4a48-bddc-3fbd21ea7dc5",
+      "name": "Google TTS Spanish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\n\nif (!response.audioContent) {\n  throw new Error('Resposta da API não contém áudio');\n}\n\nconst audioBase64 = response.audioContent;\nconst videoTitle = $node[\"Debug & Validate English\"].json.videoTitle || 'video';\n\nconst sanitizedTitle = videoTitle\n  .replace(/[<>:\"/\\\\|?*]/g, '')\n  .replace(/\\s+/g, '-')\n  .substring(0, 50);\n\nconst now = new Date();\nconst dateTime = now.toISOString()\n  .replace(/T/, '_')\n  .replace(/\\..+/, '')\n  .replace(/:/g, '-');\n\nconst filename = `${sanitizedTitle}_EN_${dateTime}.mp3`;\n\nconsole.log(`Arquivo gerado: ${filename}`);\n\nconst audioBuffer = Buffer.from(audioBase64, 'base64');\n\nreturn {\n  json: {\n    filename: filename,\n    mimeType: 'audio/mpeg',\n    size: audioBuffer.length,\n    language: 'English',\n    langCode: 'en',\n    videoTitle: videoTitle,\n    timestamp: now.toISOString()\n  },\n  binary: {\n    data: audioBuffer\n  }\n};"
+      },
+      "id": "ddced2e4-597a-402f-a48c-864330b24237",
+      "name": "Process Audio English",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\n\nif (!response.audioContent) {\n  throw new Error('Resposta da API não contém áudio');\n}\n\nconst audioBase64 = response.audioContent;\nconst videoTitle = $node[\"Debug & Validate Spanish\"].json.videoTitle || 'video';\n\nconst sanitizedTitle = videoTitle\n  .replace(/[<>:\"/\\\\|?*]/g, '')\n  .replace(/\\s+/g, '-')\n  .substring(0, 50);\n\nconst now = new Date();\nconst dateTime = now.toISOString()\n  .replace(/T/, '_')\n  .replace(/\\..+/, '')\n  .replace(/:/g, '-');\n\nconst filename = `${sanitizedTitle}_ES_${dateTime}.mp3`;\n\nconsole.log(`Arquivo gerado: ${filename}`);\n\nconst audioBuffer = Buffer.from(audioBase64, 'base64');\n\nreturn {\n  json: {\n    filename: filename,\n    mimeType: 'audio/mpeg',\n    size: audioBuffer.length,\n    language: 'Spanish',\n    langCode: 'es',\n    videoTitle: videoTitle,\n    timestamp: now.toISOString()\n  },\n  binary: {\n    data: audioBuffer\n  }\n};"
+      },
+      "id": "e847d8e9-dd69-4c47-8866-ea28eacbb9d0",
+      "name": "Process Audio Spanish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.filename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1HPCgMJbf7WsBT8GZ1JPSf7ekYzh4WvpG",
+          "mode": "list",
+          "cachedResultName": "Teste",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1HPCgMJbf7WsBT8GZ1JPSf7ekYzh4WvpG"
+        },
+        "options": {}
+      },
+      "id": "c44c9146-c0c4-402f-8e0a-eddeeb9812bd",
+      "name": "Upload to Drive - English",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        336,
+        -32
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "XOuYQ7tLROlZC2BA",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $json.filename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1HPCgMJbf7WsBT8GZ1JPSf7ekYzh4WvpG",
+          "mode": "list",
+          "cachedResultName": "Teste",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1HPCgMJbf7WsBT8GZ1JPSf7ekYzh4WvpG"
+        },
+        "options": {}
+      },
+      "id": "b2d94464-f316-43c9-a8fd-c7a65720c223",
+      "name": "Upload to Drive - Spanish",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        352,
+        272
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "XOuYQ7tLROlZC2BA",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "ed028bcd-a2e0-4a23-a76d-f1528ab5041d",
+      "name": "Merge Uploads",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        848,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconsole.log('=== CONSOLIDATE RESULTS DEBUG ===');\nconsole.log(`Total de itens recebidos: ${items.length}`);\n\nitems.forEach((item, index) => {\n  console.log(`\\nItem ${index}:`);\n  console.log(`  Nome: ${item.json.name}`);\n  console.log(`  ID: ${item.json.id}`);\n  console.log(`  Tamanho: ${item.json.size} bytes`);\n});\n\nlet englishResult = null;\nlet spanishResult = null;\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const filename = item.json.name || '';\n\n  const itemData = {\n    filename: item.json.name,\n    size: item.json.size,\n    driveUrl: `https://drive.google.com/file/d/${item.json.id}/view`,\n    downloadUrl: `https://drive.google.com/uc?export=download&id=${item.json.id}`,\n    createdTime: item.json.createdTime\n  };\n\n  if (filename.includes('_EN_')) {\n    if (englishResult) {\n      console.warn('⚠️ AVISO: Encontrado SEGUNDO arquivo inglês, usando o primeiro');\n    } else {\n      englishResult = itemData;\n      console.log(`✓ INGLÊS identificado (Item ${i}): ${filename}`);\n    }\n  }\n\n  if (filename.includes('_ES_')) {\n    if (spanishResult) {\n      console.warn('⚠️ AVISO: Encontrado SEGUNDO arquivo espanhol, usando o primeiro');\n    } else {\n      spanishResult = itemData;\n      console.log(`✓ ESPANHOL identificado (Item ${i}): ${filename}`);\n    }\n  }\n}\n\nif (!englishResult && items.length > 0) {\n  console.log('⚠️ Inglês não encontrado por _EN_, tentando index 0');\n  englishResult = {\n    filename: items[0].json.name,\n    size: items[0].json.size,\n    driveUrl: `https://drive.google.com/file/d/${items[0].json.id}/view`,\n    downloadUrl: `https://drive.google.com/uc?export=download&id=${items[0].json.id}`,\n    createdTime: items[0].json.createdTime\n  };\n}\n\nif (!spanishResult && items.length > 1) {\n  console.log('⚠️ Espanhol não encontrado por _ES_, tentando index 1');\n  spanishResult = {\n    filename: items[1].json.name,\n    size: items[1].json.size,\n    driveUrl: `https://drive.google.com/file/d/${items[1].json.id}/view`,\n    downloadUrl: `https://drive.google.com/uc?export=download&id=${items[1].json.id}`,\n    createdTime: items[1].json.createdTime\n  };\n}\n\nif (!spanishResult && items.length === 1) {\n  console.error('❌ ERRO CRÍTICO: Apenas 1 arquivo recebido!');\n  spanishResult = {\n    filename: 'ERRO-arquivo-espanhol-nao-encontrado.mp3',\n    size: 0,\n    driveUrl: '#',\n    downloadUrl: '#',\n    createdTime: new Date().toISOString()\n  };\n}\n\nconsole.log('\\n=== RESULTADO FINAL ===');\nconsole.log('Inglês:');\nconsole.log(`  Arquivo: ${englishResult?.filename || 'NÃO ENCONTRADO'}`);\nconsole.log('Espanhol:');\nconsole.log(`  Arquivo: ${spanishResult?.filename || 'NÃO ENCONTRADO'}`);\n\nreturn {\n  json: {\n    success: true,\n    results: {\n      english: englishResult,\n      spanish: spanishResult\n    },\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "f2bec3ee-c092-49d6-bc1f-34e969a7e77e",
+      "name": "Consolidate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nconst english = data.results?.english || {};\nconst spanish = data.results?.spanish || {};\n\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Processing Complete</title>\n    <style>\n        * { margin: 0; padding: 0; box-sizing: border-box; }\n        body {\n            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n            min-height: 100vh;\n            padding: 20px;\n            display: flex;\n            align-items: center;\n            justify-content: center;\n        }\n        .container {\n            background: white;\n            border-radius: 16px;\n            padding: 40px;\n            max-width: 700px;\n            width: 100%;\n            box-shadow: 0 20px 60px rgba(0,0,0,0.3);\n        }\n        h1 {\n            color: #2ecc71;\n            font-size: 32px;\n            margin-bottom: 10px;\n            display: flex;\n            align-items: center;\n            gap: 10px;\n        }\n        .subtitle {\n            color: #7f8c8d;\n            font-size: 16px;\n            margin-bottom: 30px;\n        }\n        .file-card {\n            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);\n            border-radius: 12px;\n            padding: 24px;\n            margin: 20px 0;\n            border-left: 5px solid #3498db;\n        }\n        .file-title {\n            font-size: 20px;\n            font-weight: 700;\n            color: #2c3e50;\n            margin-bottom: 12px;\n            display: flex;\n            align-items: center;\n            gap: 8px;\n        }\n        .file-info {\n            color: #546e7a;\n            margin: 8px 0;\n            font-size: 14px;\n        }\n        .btn-group {\n            margin-top: 16px;\n            display: flex;\n            gap: 10px;\n        }\n        .btn {\n            flex: 1;\n            padding: 12px 20px;\n            text-decoration: none;\n            border-radius: 8px;\n            font-weight: 600;\n            text-align: center;\n            transition: all 0.3s ease;\n            font-size: 14px;\n        }\n        .btn-primary {\n            background: #3498db;\n            color: white;\n        }\n        .btn-primary:hover {\n            background: #2980b9;\n            transform: translateY(-2px);\n            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);\n        }\n        .btn-success {\n            background: #2ecc71;\n            color: white;\n        }\n        .btn-success:hover {\n            background: #27ae60;\n            transform: translateY(-2px);\n            box-shadow: 0 4px 12px rgba(46, 204, 113, 0.4);\n        }\n        .footer {\n            text-align: center;\n            margin-top: 30px;\n            padding-top: 20px;\n            border-top: 2px solid #ecf0f1;\n            color: #95a5a6;\n            font-size: 14px;\n        }\n        .api-info {\n            background: #e8f5e9;\n            border-left: 4px solid #4caf50;\n            padding: 12px;\n            margin: 20px 0;\n            border-radius: 4px;\n            font-size: 13px;\n            color: #2e7d32;\n        }\n        @media (max-width: 600px) {\n            .container { padding: 24px; }\n            h1 { font-size: 24px; }\n            .btn-group { flex-direction: column; }\n        }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <h1>\n            <span>✅</span>\n            <span>Processing Complete!</span>\n        </h1>\n        <p class=\"subtitle\">Your audio files have been successfully generated and saved to Google Drive</p>\n\n        <div class=\"api-info\">\n            ✨ <strong>New Free API:</strong> This workflow now uses Supadata.ai - a free YouTube transcript API with no rate limits!\n        </div>\n\n        <div class=\"file-card\">\n            <div class=\"file-title\">\n                <span>🇬🇧</span>\n                <span>English Audio</span>\n            </div>\n            <div class=\"file-info\">📁 ${english.filename || 'audio-english.mp3'}</div>\n            <div class=\"file-info\">📊 Size: ${((english.size || 0) / 1024 / 1024).toFixed(2)} MB</div>\n            <div class=\"btn-group\">\n                <a href=\"${english.driveUrl || '#'}\" target=\"_blank\" class=\"btn btn-primary\">🔗 View in Drive</a>\n                <a href=\"${english.downloadUrl || '#'}\" class=\"btn btn-success\">⬇️ Download</a>\n            </div>\n        </div>\n\n        <div class=\"file-card\" style=\"border-left-color: #e74c3c;\">\n            <div class=\"file-title\">\n                <span>🇪🇸</span>\n                <span>Spanish Audio</span>\n            </div>\n            <div class=\"file-info\">📁 ${spanish.filename || 'audio-spanish.mp3'}</div>\n            <div class=\"file-info\">📊 Size: ${((spanish.size || 0) / 1024 / 1024).toFixed(2)} MB</div>\n            <div class=\"btn-group\">\n                <a href=\"${spanish.driveUrl || '#'}\" target=\"_blank\" class=\"btn btn-primary\">🔗 View in Drive</a>\n                <a href=\"${spanish.downloadUrl || '#'}\" class=\"btn btn-success\">⬇️ Download</a>\n            </div>\n        </div>\n\n        <div class=\"footer\">\n            <p>🎉 Thank you for using our service!</p>\n            <p>Generated at ${new Date().toLocaleString()}</p>\n        </div>\n    </div>\n</body>\n</html>\n`;\n\nreturn {\n  json: {\n    html: html,\n    results: data.results\n  }\n};"
+      },
+      "id": "0beac0c2-dbee-4c8e-bd09-686bc2637325",
+      "name": "Prepare HTML Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "529f67da-eaa8-4d86-bb5c-e35c3fb3c028",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2128,
+        272
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "Get YouTube Transcript (FREE API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get YouTube Transcript (FREE API)": {
+      "main": [
+        [
+          {
+            "node": "Process & Clean Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process & Clean Transcript": {
+      "main": [
+        [
+          {
+            "node": "Translate to English (GPT-3.5)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Translate to Spanish (GPT-3.5)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Translate to English (GPT-3.5)": {
+      "main": [
+        [
+          {
+            "node": "Extract English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Translate to Spanish (GPT-3.5)": {
+      "main": [
+        [
+          {
+            "node": "Extract Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract English": {
+      "main": [
+        [
+          {
+            "node": "Aggregate English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Spanish": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate English": {
+      "main": [
+        [
+          {
+            "node": "Merge & Clean English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Spanish": {
+      "main": [
+        [
+          {
+            "node": "Merge & Clean Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug & Validate English": {
+      "main": [
+        [
+          {
+            "node": "Google TTS English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google TTS English": {
+      "main": [
+        [
+          {
+            "node": "Process Audio English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge & Clean Spanish": {
+      "main": [
+        [
+          {
+            "node": "Debug & Validate Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug & Validate Spanish": {
+      "main": [
+        [
+          {
+            "node": "Google TTS Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google TTS Spanish": {
+      "main": [
+        [
+          {
+            "node": "Process Audio Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge & Clean English": {
+      "main": [
+        [
+          {
+            "node": "Debug & Validate English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Audio English": {
+      "main": [
+        [
+          {
+            "node": "Upload to Drive - English",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Audio Spanish": {
+      "main": [
+        [
+          {
+            "node": "Upload to Drive - Spanish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Drive - English": {
+      "main": [
+        [
+          {
+            "node": "Merge Uploads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Drive - Spanish": {
+      "main": [
+        [
+          {
+            "node": "Merge Uploads",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Uploads": {
+      "main": [
+        [
+          {
+            "node": "Consolidate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidate Results": {
+      "main": [
+        [
+          {
+            "node": "Prepare HTML Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare HTML Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1309549d-5c54-4e8a-8b8d-4a192164b0ef",
+  "meta": {
+    "instanceId": "d000ddefc7e002aa988385aa02d7b90706d29f96ad0520808a828b67bdda7abb"
+  },
+  "id": "UVLMp77VS5iaGX6y",
+  "tags": []
+}
