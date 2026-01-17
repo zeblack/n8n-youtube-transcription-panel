@@ -96,7 +96,7 @@
           "parameters": [
             {
               "name": "x-api-key",
-              "value": "sd_d84fee559ad48abe19987c3dbfffb4c0"
+              "value": "YOUR_SUPADATA_API_KEY"
             }
           ]
         },
@@ -143,7 +143,7 @@
             },
             {
               "name": "Authorization",
-              "value": "Bearer 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"
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
             }
           ]
         },
@@ -344,7 +344,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://texttospeech.googleapis.com/v1/text:synthesize?key=AIzaSyAD2T8INj7BxHBXWrSTE6sbhNhMnrtTtsw",
+        "url": "https://texttospeech.googleapis.com/v1/text:synthesize?key=YOUR_GOOGLE_API_KEY",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -390,7 +390,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://texttospeech.googleapis.com/v1/text:synthesize?key=AIzaSyAD2T8INj7BxHBXWrSTE6sbhNhMnrtTtsw",
+        "url": "https://texttospeech.googleapis.com/v1/text:synthesize?key=YOUR_GOOGLE_API_KEY",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
